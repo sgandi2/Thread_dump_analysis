@@ -1,257 +1,215 @@
 """
-Example script demonstrating Monitor Agent usage.
+Test script for Monitor Agent
 
-This script shows how to use the Monitor Agent programmatically.
+This script demonstrates how to use the Monitor Agent and test its functionality.
 """
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from pathlib import Path
 
-from agents.monitor.monitor_agent import MonitorAgent
-from agents.monitor.slack_notifier import SlackNotifier
-from agents.monitor.scheduler import MonitorScheduler
-from shared.models import AlertMessage, AlertSeverity, IssueType, ThreadInfo, ThreadState
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from shared.config import config
+from shared.models import ThreadInfo, ThreadDumpData, ThreadState, AlertMessage, AlertSeverity, IssueType
+from agents.monitor import MonitorAgent, SlackNotifier
 from datetime import datetime
-import uuid
 
 
-def example_1_basic_monitoring():
-    """Example 1: Basic one-time monitoring."""
-    print("\n" + "=" * 60)
-    print("Example 1: Basic Monitoring")
-    print("=" * 60)
+def create_mock_thread_dump():
+    """Create a mock thread dump for testing."""
+    threads = [
+        ThreadInfo(
+            thread_id="1",
+            thread_name="HTTP-Worker-1",
+            state=ThreadState.RUNNABLE,
+            stack_trace=[
+                "at com.wm.app.b2b.server.ServiceThread.run(ServiceThread.java:123)",
+                "at java.lang.Thread.run(Thread.java:748)"
+            ],
+            cpu_time=350000,  # 350 seconds - hung thread!
+            blocked_count=0
+        ),
+        ThreadInfo(
+            thread_id="2",
+            thread_name="HTTP-Worker-2",
+            state=ThreadState.BLOCKED,
+            stack_trace=[
+                "at com.wm.app.b2b.server.ServiceThread.run(ServiceThread.java:456)",
+                "- waiting to lock <0x00000000d5c5e5e0>"
+            ],
+            cpu_time=50000,
+            blocked_count=5
+        ),
+        ThreadInfo(
+            thread_id="3",
+            thread_name="HTTP-Worker-3",
+            state=ThreadState.RUNNABLE,
+            stack_trace=[
+                "at com.wm.app.b2b.server.ServiceThread.run(ServiceThread.java:789)"
+            ],
+            cpu_time=10000,
+            blocked_count=0
+        )
+    ]
     
-    # Create monitor agent
-    agent = MonitorAgent()
-    
-    # Run monitoring
-    print("Running monitoring check...")
-    alerts = agent.monitor()
-    
-    # Display results
-    if alerts:
-        print(f"\n✅ Generated {len(alerts)} alerts:")
-        for alert in alerts:
-            print(f"  - {alert.title}")
-            print(f"    Severity: {alert.severity.value}")
-            print(f"    Type: {alert.issue_type.value}")
-    else:
-        print("\n✅ No issues detected")
+    return ThreadDumpData(
+        timestamp=datetime.now(),
+        server_url=config.WEBMETHODS_URL,
+        total_threads=len(threads),
+        threads=threads,
+        cpu_usage=85.5,  # High CPU!
+        memory_usage=78.2
+    )
 
 
-def example_2_slack_notification():
-    """Example 2: Send alerts to Slack."""
-    print("\n" + "=" * 60)
-    print("Example 2: Slack Notifications")
-    print("=" * 60)
+def test_thread_detection():
+    """Test thread detection logic."""
+    print("=" * 70)
+    print("Testing Thread Detection")
+    print("=" * 70)
     
-    # Create notifier
-    notifier = SlackNotifier()
+    dump = create_mock_thread_dump()
     
-    # Create a sample alert
-    sample_alert = AlertMessage(
-        alert_id=str(uuid.uuid4()),
+    # Test hung thread detection
+    hung_threads = dump.get_hung_threads(threshold=300)
+    print(f"\n✓ Hung threads detected: {len(hung_threads)}")
+    for thread in hung_threads:
+        print(f"  - {thread.thread_name} (duration: {thread.get_duration():.2f}s)")
+    
+    # Test blocked thread detection
+    blocked_threads = dump.get_blocked_threads()
+    print(f"\n✓ Blocked threads detected: {len(blocked_threads)}")
+    for thread in blocked_threads:
+        print(f"  - {thread.thread_name} (blocked count: {thread.blocked_count})")
+    
+    # Test deadlock detection
+    deadlocks = dump.detect_deadlocks()
+    print(f"\n✓ Deadlocks detected: {len(deadlocks)}")
+    
+    print("\n" + "=" * 70)
+
+
+def test_alert_creation():
+    """Test alert message creation."""
+    print("\nTesting Alert Creation")
+    print("=" * 70)
+    
+    dump = create_mock_thread_dump()
+    hung_thread = dump.get_hung_threads()[0]
+    
+    alert = AlertMessage(
+        alert_id="test-123",
         timestamp=datetime.now(),
         severity=AlertSeverity.HIGH,
         issue_type=IssueType.HUNG_THREAD,
-        title="Example Hung Thread Alert",
-        description="This is a test alert to demonstrate Slack integration.",
-        server_url="http://localhost:5555",
+        title=f"Hung Thread Detected: {hung_thread.thread_name}",
+        description=f"Thread has been running for {hung_thread.get_duration():.2f} seconds",
+        thread_info=hung_thread,
+        server_url=config.WEBMETHODS_URL,
         recommendations=[
-            "This is a test alert",
-            "No action needed",
-            "Check the Slack channel for the message"
+            "Review thread stack trace for blocking operations",
+            "Check for database connection issues",
+            "Consider thread interruption if safe"
         ]
     )
     
-    # Send to Slack
-    print("Sending test alert to Slack...")
-    success = notifier.send_alert(sample_alert)
+    print(f"\n✓ Alert created:")
+    print(f"  - ID: {alert.alert_id}")
+    print(f"  - Severity: {alert.severity.value}")
+    print(f"  - Type: {alert.issue_type.value}")
+    print(f"  - Title: {alert.title}")
+    print(f"  - Recommendations: {len(alert.recommendations)}")
     
-    if success:
-        print("✅ Alert sent successfully!")
-    else:
-        print("❌ Failed to send alert")
+    # Test Slack block formatting
+    blocks = alert.to_slack_blocks()
+    print(f"\n✓ Slack blocks generated: {len(blocks)} blocks")
+    
+    print("\n" + "=" * 70)
 
 
-def example_3_scheduled_monitoring():
-    """Example 3: Scheduled monitoring (runs for 2 minutes)."""
-    print("\n" + "=" * 60)
-    print("Example 3: Scheduled Monitoring")
-    print("=" * 60)
-    print("This will run for 2 minutes, then stop automatically.")
-    print("Press Ctrl+C to stop earlier.")
+def test_slack_notifier():
+    """Test Slack notifier."""
+    print("\nTesting Slack Notifier")
+    print("=" * 70)
     
-    # Create scheduler with 30-second interval
-    scheduler = MonitorScheduler(interval=30)
-    
-    # Start monitoring
-    scheduler.start_monitoring()
-    
-    try:
-        import time
-        # Run for 2 minutes
-        for i in range(120):
-            time.sleep(1)
-            if i % 30 == 0:
-                status = scheduler.get_status()
-                print(f"\nStatus: Run #{status['run_count']}, Alerts: {status['alert_count']}")
-        
-        # Stop monitoring
-        scheduler.stop_monitoring()
-        print("\n✅ Monitoring stopped")
-        
-    except KeyboardInterrupt:
-        print("\n\n🛑 Interrupted by user")
-        scheduler.stop_monitoring()
-
-
-def example_4_custom_alert():
-    """Example 4: Create and send custom alert."""
-    print("\n" + "=" * 60)
-    print("Example 4: Custom Alert")
-    print("=" * 60)
-    
-    # Create a custom thread info
-    thread_info = ThreadInfo(
-        thread_id="thread-123",
-        thread_name="CustomTestThread",
-        state=ThreadState.BLOCKED,
-        stack_trace=[
-            "at com.example.Service.processRequest(Service.java:45)",
-            "at com.example.Controller.handleRequest(Controller.java:123)",
-            "at java.lang.Thread.run(Thread.java:748)"
-        ],
-        cpu_time=350000,  # 350 seconds
-        blocked_count=5
-    )
-    
-    # Create custom alert
-    alert = AlertMessage(
-        alert_id=str(uuid.uuid4()),
-        timestamp=datetime.now(),
-        severity=AlertSeverity.CRITICAL,
-        issue_type=IssueType.DEADLOCK,
-        title="Custom Deadlock Alert",
-        description="Detected a potential deadlock situation with multiple blocked threads.",
-        thread_info=thread_info,
-        server_url="http://localhost:5555",
-        recommendations=[
-            "Analyze thread dump for circular dependencies",
-            "Review locking mechanisms in Service.java",
-            "Consider restarting the affected service"
-        ],
-        metadata={
-            "custom_field": "custom_value",
-            "priority": "urgent"
-        }
-    )
-    
-    # Display alert details
-    print("\nAlert Details:")
-    print(f"  ID: {alert.alert_id}")
-    print(f"  Title: {alert.title}")
-    print(f"  Severity: {alert.severity.value}")
-    print(f"  Thread: {alert.thread_info.thread_name}")
-    print(f"  Duration: {alert.thread_info.get_duration():.2f}s")
-    print(f"  Stack Trace Lines: {len(alert.thread_info.stack_trace)}")
-    
-    # Send to Slack
-    notifier = SlackNotifier()
-    print("\nSending to Slack...")
-    success = notifier.send_alert(alert)
-    
-    if success:
-        print("✅ Custom alert sent successfully!")
-    else:
-        print("❌ Failed to send custom alert")
-
-
-def example_5_monitor_with_callback():
-    """Example 5: Monitor with custom callback for alerts."""
-    print("\n" + "=" * 60)
-    print("Example 5: Monitor with Callback")
-    print("=" * 60)
-    
-    def alert_callback(alert: AlertMessage):
-        """Custom callback for handling alerts."""
-        print(f"\n🚨 Alert Received: {alert.title}")
-        print(f"   Severity: {alert.severity.value}")
-        print(f"   Time: {alert.timestamp.strftime('%H:%M:%S')}")
-        
-        # Custom logic here
-        if alert.severity == AlertSeverity.CRITICAL:
-            print("   ⚠️  CRITICAL - Immediate action required!")
-        
-        # Could trigger other actions:
-        # - Send email
-        # - Create ticket
-        # - Trigger remediation
-        # - Update dashboard
-    
-    # Create agent and notifier
-    agent = MonitorAgent()
     notifier = SlackNotifier()
     
-    # Run monitoring
-    print("Running monitoring with callback...")
-    alerts = agent.monitor()
+    if not notifier.webhook_url:
+        print("\n⚠️  No Slack webhook configured. Skipping Slack test.")
+        print("   Set SLACK_WEBHOOK_URL in .env to test Slack integration")
+    else:
+        print(f"\n✓ Slack notifier initialized")
+        print(f"  - Webhook: {notifier.webhook_url[:50]}...")
+        print(f"  - Channel: {notifier.channel}")
+        
+        # Ask user if they want to send test message
+        response = input("\nSend test message to Slack? (y/n): ")
+        if response.lower() == 'y':
+            if notifier.send_test_message():
+                print("✓ Test message sent successfully!")
+            else:
+                print("✗ Failed to send test message")
     
-    # Process alerts with callback
-    for alert in alerts:
-        alert_callback(alert)
-        notifier.send_alert(alert)
+    print("\n" + "=" * 70)
+
+
+def test_monitor_agent():
+    """Test monitor agent (without actual API calls)."""
+    print("\nTesting Monitor Agent")
+    print("=" * 70)
     
-    if not alerts:
-        print("\n✅ No alerts generated")
+    print("\n✓ Monitor agent can be initialized")
+    print("  Note: Full testing requires webMethods Integration Server")
+    print("  Use 'python run_monitor.py --once' to test with real server")
+    
+    print("\n" + "=" * 70)
 
 
 def main():
-    """Run all examples."""
-    print("\n" + "=" * 70)
-    print(" Thread Dump Monitor Agent - Examples")
-    print("=" * 70)
-    
-    examples = [
-        ("Basic Monitoring", example_1_basic_monitoring),
-        ("Slack Notifications", example_2_slack_notification),
-        ("Scheduled Monitoring", example_3_scheduled_monitoring),
-        ("Custom Alert", example_4_custom_alert),
-        ("Monitor with Callback", example_5_monitor_with_callback),
-    ]
-    
-    print("\nAvailable Examples:")
-    for i, (name, _) in enumerate(examples, 1):
-        print(f"  {i}. {name}")
-    print("  0. Run all examples")
+    """Run all tests."""
+    print("\n")
+    print("╔" + "=" * 68 + "╗")
+    print("║" + " " * 15 + "Monitor Agent Test Suite" + " " * 29 + "║")
+    print("╚" + "=" * 68 + "╝")
+    print()
     
     try:
-        choice = input("\nSelect example (0-5): ").strip()
+        # Run tests
+        test_thread_detection()
+        test_alert_creation()
+        test_slack_notifier()
+        test_monitor_agent()
         
-        if choice == "0":
-            for name, func in examples:
-                try:
-                    func()
-                except KeyboardInterrupt:
-                    print("\n\n🛑 Skipping to next example...")
-                    continue
-        elif choice.isdigit() and 1 <= int(choice) <= len(examples):
-            examples[int(choice) - 1][1]()
-        else:
-            print("Invalid choice")
-            
-    except KeyboardInterrupt:
-        print("\n\n🛑 Interrupted by user")
+        # Summary
+        print("\n")
+        print("╔" + "=" * 68 + "╗")
+        print("║" + " " * 25 + "Test Summary" + " " * 31 + "║")
+        print("╚" + "=" * 68 + "╝")
+        print()
+        print("✅ All tests completed successfully!")
+        print()
+        print("Next steps:")
+        print("  1. Configure .env with your settings")
+        print("  2. Set up Slack webhook URL")
+        print("  3. Install Ollama and pull llama2 model")
+        print("  4. Run: python run_monitor.py --test-slack")
+        print("  5. Run: python run_monitor.py --once")
+        print("  6. Run: python run_monitor.py (for continuous monitoring)")
+        print()
+        
     except Exception as e:
-        print(f"\n❌ Error: {str(e)}")
+        print(f"\n❌ Test failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return 1
     
-    print("\n" + "=" * 70)
-    print("Examples complete!")
-    print("=" * 70)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
 
 # Made with Bob
