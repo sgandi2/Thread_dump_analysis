@@ -48,7 +48,7 @@ def load_sample_data():
 
 # Sidebar
 with st.sidebar:
-    st.title("🔍 Thread Dump Analysis")
+    st.title("� Thread Dump Analysis")
     st.markdown("---")
     st.subheader("Server Configuration")
     server_url = st.text_input("webMethods Server URL", value="http://localhost:5555")

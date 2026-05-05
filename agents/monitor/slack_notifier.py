@@ -36,7 +36,7 @@ class SlackNotifier:
     
     def send_alert(self, alert: AlertMessage) -> bool:
         """
-        Send an alert to Slack.
+        Send an alert to Slack and save to alerts directory for dashboard.
         
         Args:
             alert: AlertMessage to send
@@ -54,6 +54,9 @@ class SlackNotifier:
             return False
         
         try:
+            # Save alert to file for dashboard
+            self._save_alert_to_file(alert)
+            
             # Format message using blocks
             payload = self._format_alert_message(alert)
             
@@ -79,6 +82,49 @@ class SlackNotifier:
             logger.error(f"Error sending Slack alert: {str(e)}")
             return False
     
+    def _save_alert_to_file(self, alert: AlertMessage):
+        """
+        Save alert to file for dashboard to display.
+        
+        Args:
+            alert: AlertMessage to save
+        """
+        try:
+            from pathlib import Path
+            import json
+            
+            # Create alerts directory if it doesn't exist
+            alerts_dir = Path("data/alerts")
+            alerts_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create alert filename with timestamp
+            timestamp = alert.timestamp.strftime("%Y%m%d_%H%M%S")
+            filename = f"alert_{timestamp}_{alert.alert_id}.json"
+            filepath = alerts_dir / filename
+            
+            # Convert alert to dictionary
+            alert_data = {
+                'alert_id': alert.alert_id,
+                'timestamp': alert.timestamp.isoformat(),
+                'severity': alert.severity.value,
+                'issue_type': alert.issue_type.value if alert.issue_type else 'unknown',
+                'title': alert.title,
+                'description': alert.description,
+                'server_url': alert.server_url,
+                'recommendations': alert.recommendations,
+                'metadata': alert.metadata,
+                'status': 'active'  # Can be: active, acknowledged, resolved
+            }
+            
+            # Save to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(alert_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Alert saved to {filepath}")
+            
+        except Exception as e:
+            logger.error(f"Error saving alert to file: {str(e)}")
+    
     def send_alerts(self, alerts: List[AlertMessage]) -> int:
         """
         Send multiple alerts to Slack.
@@ -100,7 +146,7 @@ class SlackNotifier:
     
     def _format_alert_message(self, alert: AlertMessage) -> dict:
         """
-        Format alert as Slack message with blocks.
+        Format alert as Slack message with blocks in the required format.
         
         Args:
             alert: AlertMessage to format
@@ -118,17 +164,121 @@ class SlackNotifier:
         }
         emoji = severity_emoji.get(alert.severity.value, "⚠️")
         
-        # Build blocks
-        blocks = alert.to_slack_blocks()
+        # Extract metadata
+        metadata = alert.metadata or {}
+        pid = metadata.get('pid', 'N/A')
+        cpu_usage = metadata.get('cpu_usage', 'N/A')
+        memory_usage = metadata.get('memory_usage', 'N/A')
+        pattern = alert.issue_type.value.upper().replace('_', ' ')
+        timestamp = alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')
         
-        # Add header with emoji
-        blocks[0]["text"]["text"] = f"{emoji} {alert.title}"
+        # Get thread details from description
+        thread_logs = alert.description if alert.description else "No thread details available"
+        
+        # Build blocks in required format
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"{emoji} {alert.severity.value.upper()} Alert: {pattern}",
+                    "emoji": True
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Process ID:*\n{pid}"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*CPU Usage:*\n{cpu_usage}%"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Memory Usage:*\n{memory_usage}%"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Detected:*\n{timestamp}"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Pattern:*\n{pattern}"
+                    }
+                ]
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Long Running Thread Log from Server:*\n```{thread_logs}```"
+                }
+            },
+            {
+                "type": "divider"
+            }
+        ]
+        
+        # Add Root Cause Analysis if available
+        root_cause = metadata.get('root_cause', 'Analyzing thread patterns and execution times...')
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Root Cause Analysis:*\n{root_cause}"
+            }
+        })
+        
+        # Add Detailed Analysis if available
+        detailed_analysis = metadata.get('detailed_analysis', alert.description)
+        if detailed_analysis and detailed_analysis != thread_logs:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Detailed Analysis:*\n{detailed_analysis}"
+                }
+            })
+        
+        blocks.append({"type": "divider"})
+        
+        # Add AI Remediation Recommendations
+        if alert.recommendations:
+            recommendations_text = "*AI Remediation Recommendation Steps:*\n"
+            for i, rec in enumerate(alert.recommendations, 1):
+                recommendations_text += f"{i}. {rec}\n"
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": recommendations_text
+                }
+            })
+        
+        # Add footer with server URL
+        if alert.server_url:
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Server: {alert.server_url} | Alert ID: {alert.alert_id}"
+                    }
+                ]
+            })
         
         # Create payload
         payload = {
             "channel": self.channel,
             "blocks": blocks,
-            "text": f"{alert.title}"  # Fallback text
+            "text": f"{alert.severity.value.upper()} Alert: {pattern}"  # Fallback text
         }
         
         return payload
