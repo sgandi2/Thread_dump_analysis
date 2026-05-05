@@ -1,0 +1,163 @@
+{
+  "description": "Sample CPU metrics showing high CPU usage scenario",
+  "scenario": "High CPU with thread contention",
+  "cpu_metrics": {
+    "overall_cpu": 92.5,
+    "process_cpu": 88.3,
+    "system_cpu": 18.2,
+    "user_cpu": 74.3,
+    "thread_count": 180,
+    "runnable_threads": 95,
+    "blocked_threads": 25,
+    "waiting_threads": 60,
+    "cpu_cores": 8,
+    "load_average": [7.8, 7.2, 6.5],
+    "timestamp": "2023-01-15T10:30:00Z",
+    "cpu_history": [
+      {"time": "10:00", "cpu": 45.2},
+      {"time": "10:05", "cpu": 67.8},
+      {"time": "10:10", "cpu": 78.5},
+      {"time": "10:15", "cpu": 85.3},
+      {"time": "10:20", "cpu": 89.7},
+      {"time": "10:25", "cpu": 92.1},
+      {"time": "10:30", "cpu": 92.5}
+    ]
+  },
+  "thread_dump": {
+    "threads": [
+      {
+        "id": 1,
+        "name": "http-nio-8080-exec-1",
+        "state": "RUNNABLE",
+        "cpu_time": 8500,
+        "stack_trace": [
+          "com.example.DataProcessor.processLargeDataset(DataProcessor.java:45)",
+          "com.example.RequestHandler.handleRequest(RequestHandler.java:123)"
+        ]
+      },
+      {
+        "id": 2,
+        "name": "http-nio-8080-exec-2",
+        "state": "RUNNABLE",
+        "cpu_time": 7800,
+        "stack_trace": [
+          "com.example.DataProcessor.processLargeDataset(DataProcessor.java:45)",
+          "com.example.RequestHandler.handleRequest(RequestHandler.java:123)"
+        ]
+      },
+      {
+        "id": 3,
+        "name": "http-nio-8080-exec-3",
+        "state": "RUNNABLE",
+        "cpu_time": 6500,
+        "stack_trace": [
+          "java.util.regex.Pattern.compile(Pattern.java:1234)",
+          "com.example.ValidationService.validate(ValidationService.java:67)"
+        ]
+      },
+      {
+        "id": 4,
+        "name": "pool-1-thread-1",
+        "state": "BLOCKED",
+        "cpu_time": 150,
+        "stack_trace": [
+          "com.example.CacheManager.get(CacheManager.java:89)",
+          "waiting to lock <0x00000007e8a12345> (a java.util.HashMap)"
+        ]
+      },
+      {
+        "id": 5,
+        "name": "pool-1-thread-2",
+        "state": "BLOCKED",
+        "cpu_time": 120,
+        "stack_trace": [
+          "com.example.CacheManager.get(CacheManager.java:89)",
+          "waiting to lock <0x00000007e8a12345> (a java.util.HashMap)"
+        ]
+      },
+      {
+        "id": 6,
+        "name": "pool-2-thread-1",
+        "state": "RUNNABLE",
+        "cpu_time": 5200,
+        "stack_trace": [
+          "com.example.StringProcessor.concatenate(StringProcessor.java:34)",
+          "com.example.ReportGenerator.generate(ReportGenerator.java:156)"
+        ]
+      },
+      {
+        "id": 7,
+        "name": "pool-2-thread-2",
+        "state": "WAITING",
+        "cpu_time": 80,
+        "stack_trace": [
+          "java.lang.Object.wait(Native Method)",
+          "com.example.QueueProcessor.waitForWork(QueueProcessor.java:45)"
+        ]
+      },
+      {
+        "id": 8,
+        "name": "async-task-executor-1",
+        "state": "RUNNABLE",
+        "cpu_time": 4800,
+        "stack_trace": [
+          "com.example.DataTransformer.transform(DataTransformer.java:78)",
+          "java.util.stream.ReferencePipeline.forEach(ReferencePipeline.java:497)"
+        ]
+      }
+    ]
+  },
+  "expected_issues": [
+    {
+      "type": "Inefficient Algorithm",
+      "description": "O(n²) complexity in DataProcessor.processLargeDataset",
+      "severity": "High",
+      "cpu_impact": 35.5
+    },
+    {
+      "type": "Lock Contention",
+      "description": "Multiple threads blocked on HashMap lock in CacheManager",
+      "severity": "High",
+      "cpu_impact": 15.2
+    },
+    {
+      "type": "Regex Compilation",
+      "description": "Repeated Pattern.compile() calls in validation",
+      "severity": "Medium",
+      "cpu_impact": 12.8
+    },
+    {
+      "type": "String Concatenation",
+      "description": "Inefficient string concatenation in StringProcessor",
+      "severity": "Medium",
+      "cpu_impact": 10.5
+    }
+  ],
+  "expected_recommendations": [
+    {
+      "optimization": "Replace nested loops with HashMap lookup in DataProcessor",
+      "expected_cpu_reduction": 40,
+      "priority": "High"
+    },
+    {
+      "optimization": "Use ConcurrentHashMap instead of synchronized HashMap in CacheManager",
+      "expected_cpu_reduction": 15,
+      "priority": "High"
+    },
+    {
+      "optimization": "Pre-compile regex patterns and reuse in ValidationService",
+      "expected_cpu_reduction": 12,
+      "priority": "Medium"
+    },
+    {
+      "optimization": "Use StringBuilder for string concatenation in StringProcessor",
+      "expected_cpu_reduction": 10,
+      "priority": "Medium"
+    },
+    {
+      "optimization": "Increase thread pool size from 50 to 100",
+      "expected_cpu_reduction": 5,
+      "priority": "Low"
+    }
+  ]
+}
